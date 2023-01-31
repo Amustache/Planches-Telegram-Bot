@@ -3,16 +3,16 @@
 # pylint: disable=unused-argument, wrong-import-position
 
 # This program is dedicated to the public domain under the CC0 license.
-import datetime
 import logging
 
 
-from peewee import CharField, IntegerField, Model, SqliteDatabase
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, filters, MessageHandler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 import requests
 
 
+from helpers import BOARDS, ENDPOINT, get_last_op_from_board, get_latest_op
+from models import DB, Subscription, subsfromuser, subuser, unsubuser
 from secret import TOKEN
 
 
@@ -21,28 +21,13 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-ENDPOINT = "https://planches.arnalo.ch/api/{board}/{op}"
-BOARDS = ["b", "n", "c", "smol"]
-OPS = ["", "ops", "post/{num}"]
 LAST_OPS = {}
-
-DB = SqliteDatabase("./main.db")
-
-
-class BaseModel(Model):
-    class Meta:
-        database = DB
-
-
-class Subscription(BaseModel):
-    userid = IntegerField()
-    board = CharField()
 
 
 async def update_from_board(context):
     job = context.job
     board = job.data
-    last = requests.get(ENDPOINT.format(board=board, op="ops")).json()[0]["fields"]["seq"]
+    last = get_last_op_from_board(board)
     if last > LAST_OPS[board]:
         LAST_OPS[board] = last
         subs = Subscription.select().where(Subscription.board == board)
@@ -50,40 +35,16 @@ async def update_from_board(context):
             await context.bot.send_message(sub.userid, text=f"Update from board {board}")
 
 
-def subuser(userid, board):
-    sub, created = Subscription.get_or_create(userid=userid, board=board)
-    return created
-
-
-def unsubuser(userid, board):
-    sub = Subscription.get_or_none(userid=userid, board=board)
-    if sub:
-        sub.delete_instance()
-        return True
-    else:
-        return False
-
-
-def subsfromuser(userid):
-    subs = Subscription.select().where(Subscription.userid == userid)
-    return [sub.board for sub in subs]
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-
-    user = update.effective_user
-
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
-        reply_markup=ForceReply(selective=True),
-    )
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
 
-    await update.message.reply_text("Help!")
+    await update.message.reply_text(
+        "Telegram bot for https://planches.arnalo.ch/\n\n"
+        "- /sub \<board>: Get new updates from a board\n"
+        "- /unsub \<board>: Unsub from a board\n"
+        "- /list: Show currently subscribed boards\n"
+        "- /read \<board>: List last five OPs of a board\n"
+    )
 
 
 async def sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -127,15 +88,9 @@ async def read(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if board not in BOARDS:
             await update.message.reply_text(f"Board not available: {board}.")
             return
-        data = requests.get(ENDPOINT.format(board=board, op="ops")).json()
         text = f"Last 5 ops from {board}\n"
-        for post in data[:5]:
-            number = post["fields"]["seq"]
-            # img = "https://planches.arnalo.ch/media/{}".format(post["fields"]["img"])
-            last_bump = post["fields"]["bump_timestamp"]
-            content = post["fields"]["content"].replace("\r\n", " ")
-            link = f"https://planches.arnalo.ch/{board}/thread/{number}"
-            text += f"[<a href=\"{link}\">#{number}</a>] {content[:128]}{'[...]' if len(content) > 128 else ''} (Last bump: {last_bump})\n"
+        for post in get_latest_op(board, 5):
+            text += f"[<a href=\"{post['link']}\">#{post['number']}</a>] {post['content'][:128]}{'[...]' if len(post['content']) > 128 else ''} (Last bump: {post['last_bump']})\n"
         await update.message.reply_text(text, disable_web_page_preview=True, parse_mode="HTML")
     else:
         boards = ", ".join(BOARDS)
@@ -151,8 +106,7 @@ def main() -> None:
     application = Application.builder().token(TOKEN).build()
 
     # on different commands - answer in Telegram
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler(["start", "help"], help_command))
     application.add_handler(CommandHandler("sub", sub))
     application.add_handler(CommandHandler("unsub", unsub))
     application.add_handler(CommandHandler("list", list))
@@ -162,7 +116,7 @@ def main() -> None:
     # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
     for board in BOARDS:
-        LAST_OPS[board] = requests.get(ENDPOINT.format(board=board, op="ops")).json()[0]["fields"]["seq"]
+        LAST_OPS[board] = get_last_op_from_board(board)
         application.job_queue.run_repeating(update_from_board, 10, data=board, name=str(board))
 
     # Run the bot until the user presses Ctrl-C
