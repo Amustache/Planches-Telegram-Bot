@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 
-from helpers import BOARDS, ENDPOINT, get_last_op_from_board, get_latest_ops
+from helpers import BOARDS, ENDPOINT, get_last_op_from_board, get_latest_op, get_latest_ops
 from models import DB, Subscription, subsfromuser, subuser, unsubuser
 from secret import TOKEN
 
@@ -26,12 +26,17 @@ LAST_OPS = {}
 async def update_from_board(context):
     job = context.job
     board = job.data
-    last = get_last_op_from_board(board)
+    last = get_last_op_from_board(board)  # Because the API is broken lmao
     if last > LAST_OPS[board]:
         LAST_OPS[board] = last
         subs = Subscription.select().where(Subscription.board == board)
+        post = get_latest_op(board)
+        text = f"Update from board {board}!\n\nThread #{post['number']}\n{post['content']}\nLink: {post['link']}\nLast bump: {post['last_bump']}\n"
         for sub in subs:
-            await context.bot.send_message(sub.userid, text=f"Update from board {board}")
+            if post["img"]:
+                await context.bot.send_photo(sub.userid, post["img"], caption=text)
+            else:
+                await context.bot.send_message(sub.userid, text=text)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -116,7 +121,7 @@ def main() -> None:
 
     for board in BOARDS:
         LAST_OPS[board] = get_last_op_from_board(board)
-        application.job_queue.run_repeating(update_from_board, 10, data=board, name=str(board))
+        application.job_queue.run_repeating(update_from_board, 60, data=board, name=str(board))
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
