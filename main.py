@@ -8,10 +8,9 @@ import logging
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-import requests
 
 
-from helpers import BOARDS, ENDPOINT, get_last_op_from_board, get_latest_op
+from helpers import BOARDS, ENDPOINT, get_last_op_from_board, get_latest_ops
 from models import DB, Subscription, subsfromuser, subuser, unsubuser
 from secret import TOKEN
 
@@ -89,7 +88,7 @@ async def read(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"Board not available: {board}.")
             return
         text = f"Last 5 ops from {board}\n"
-        for post in get_latest_op(board, 5):
+        for post in get_latest_ops(board, 5):
             text += f"[<a href=\"{post['link']}\">#{post['number']}</a>] {post['content'][:128]}{'[...]' if len(post['content']) > 128 else ''} (Last bump: {post['last_bump']})\n"
         await update.message.reply_text(text, disable_web_page_preview=True, parse_mode="HTML")
     else:
