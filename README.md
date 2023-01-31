@@ -2,6 +2,9 @@
 Telegram bot for https://planches.arnalo.ch/
 
 ## Setup
+* `cp secret.dist.py secret.py` and put your bot token in here.
+* Install Poetry.
+* `poetry run python main.py`
 
 ## Usage
 ### API
