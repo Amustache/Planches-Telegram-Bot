@@ -14,9 +14,8 @@ OPS = ["", "ops", "post/{num}"]
 `````
 
 ### Commands
-- /sub <board>: Get new updates from a board
-- /unsub <board>: Unsub from a board
+- /sub \<board>: Get new updates from a board
+- /unsub \<board>: Unsub from a board
 - /list: Show currently subscribed boards
-- /read <board>: List last five OPs of a board
-- /catalog <board>: List all OPs of a board
+- /read \<board>: List last five OPs of a board
 - (Soon ™️) Reply to a post: 🤷‍♀️

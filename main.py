@@ -3,8 +3,7 @@
 # pylint: disable=unused-argument, wrong-import-position
 
 # This program is dedicated to the public domain under the CC0 license.
-
-
+import datetime
 import logging
 
 
@@ -25,6 +24,7 @@ logger = logging.getLogger(__name__)
 ENDPOINT = "https://planches.arnalo.ch/api/{board}/{op}"
 BOARDS = ["b", "n", "c", "smol"]
 OPS = ["", "ops", "post/{num}"]
+LAST_OPS = {}
 
 DB = SqliteDatabase("./main.db")
 
@@ -37,6 +37,17 @@ class BaseModel(Model):
 class Subscription(BaseModel):
     userid = IntegerField()
     board = CharField()
+
+
+async def update_from_board(context):
+    job = context.job
+    board = job.data
+    last = requests.get(ENDPOINT.format(board=board, op="ops")).json()[0]["fields"]["seq"]
+    if last > LAST_OPS[board]:
+        LAST_OPS[board] = last
+        subs = Subscription.select().where(Subscription.board == board)
+        for sub in subs:
+            await context.bot.send_message(sub.userid, text=f"Update from board {board}")
 
 
 def subuser(userid, board):
@@ -84,6 +95,7 @@ async def sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         subbed = subuser(update.effective_user.id, board)
         if not subbed:
             await update.message.reply_text(f"You were already subscribed to the board {board}.")
+            return
     else:
         boards = ", ".join(BOARDS)
         await update.message.reply_text(f"Usage: /sub <board>\nAvailable boards: {boards}.")
@@ -98,6 +110,7 @@ async def unsub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         unsubbed = unsubuser(update.effective_user.id, board)
         if not unsubbed:
             await update.message.reply_text(f"You were not subscribed to the board {board}.")
+            return
     else:
         boards = ", ".join(subsfromuser(update.effective_user.id)) or "none"
         await update.message.reply_text(f"Usage: /unsub <board>\nYour boards: {boards}.")
@@ -129,16 +142,6 @@ async def read(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Usage: /read <board>\nAvailable boards: {boards}.")
 
 
-async def catalog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if context.args:
-        board = context.args[0]
-        if board not in BOARDS:
-            await update.message.reply_text(f"Board not available: {board}.")
-    else:
-        boards = ", ".join(BOARDS)
-        await update.message.reply_text(f"Usage: /read <board>\nAvailable boards: {boards}.")
-
-
 def main() -> None:
     """Start the bot."""
     DB.connect()
@@ -154,10 +157,13 @@ def main() -> None:
     application.add_handler(CommandHandler("unsub", unsub))
     application.add_handler(CommandHandler("list", list))
     application.add_handler(CommandHandler("read", read))
-    application.add_handler(CommandHandler("catalog", catalog))
 
     # on non command i.e message - echo the message on Telegram
     # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+    for board in BOARDS:
+        LAST_OPS[board] = requests.get(ENDPOINT.format(board=board, op="ops")).json()[0]["fields"]["seq"]
+        application.job_queue.run_repeating(update_from_board, 10, data=board, name=str(board))
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling()

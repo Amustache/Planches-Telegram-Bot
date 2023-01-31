@@ -12,7 +12,7 @@ isort = "^5.12.0"
 pre-commit = "^3.0.1"
 pylint = "^2.15.10"
 bump2version = "^1.0.1"
-python-telegram-bot = "^20.0"
+python-telegram-bot = {extras = ["job-queue"], version = "^20.0"}
 peewee = "^3.15.4"
 requests = "^2.28.2"
 
